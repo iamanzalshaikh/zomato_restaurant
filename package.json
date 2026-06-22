@@ -34,15 +34,7 @@
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
-    "zustand": "^5.0.14"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "overrides": {
-    "typescript": "5.9.3"
-  },
-  "devDependencies": {
+    "zustand": "^5.0.14",
     "@tailwindcss/vite": "^4.1.17",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
@@ -50,5 +42,11 @@
     "tailwindcss": "^4.1.17",
     "typescript": "5.9.3",
     "vite": "^8.0.12"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "typescript": "5.9.3"
   }
 }
