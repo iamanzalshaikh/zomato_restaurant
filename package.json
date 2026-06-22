@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build --mode production",
     "preview": "vite preview",
+    "start": "vite preview --port $PORT --host",
+    "lint": "tsc --noEmit"
     "lint": "tsc --noEmit",
     "cap:sync": "npx cap sync",
     "cap:open:android": "npx cap open android",
