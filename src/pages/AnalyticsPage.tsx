@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { getRestaurantAnalytics } from '@/services/restaurants';
 import { useRestaurantStore } from '@/stores/restaurantStore';
+import { useCompactLayout } from '@/hooks/use-mobile';
 import { PageShell } from '@/components/layout/PageShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { RestaurantAnalytics } from '@/types/analytics';
@@ -28,6 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function AnalyticsPage() {
+  const compact = useCompactLayout();
   const restaurant = useRestaurantStore((s) => s.restaurant);
   const restaurantId = restaurant?._id ?? '';
 
@@ -96,7 +98,7 @@ export function AnalyticsPage() {
   return (
     <PageShell eyebrow="Insights" title="Analytics" subtitle={data?.restaurantName}>
       <div className="space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {cards.map((c) => {
             const Icon = c.icon;
             return (
@@ -132,7 +134,7 @@ export function AnalyticsPage() {
                         style={{ height: `${h}%` }}
                         title={`₹${d.revenue} · ${d.orders} orders`}
                       />
-                      <span className="text-[8px] text-muted font-bold rotate-[-45deg] origin-top-left mt-2 whitespace-nowrap">
+                      <span className={`text-[8px] text-muted font-bold ${compact ? '' : 'rotate-[-45deg] origin-top-left mt-2'} whitespace-nowrap`}>
                         {d._id.slice(5)}
                       </span>
                     </div>

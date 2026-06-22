@@ -26,7 +26,7 @@ export function PageShell({ eyebrow, title, subtitle, action, children }: Props)
             <p className="mt-1.5 text-xs leading-relaxed text-muted sm:text-sm">{subtitle}</p>
           )}
         </div>
-        {action && <div className="shrink-0">{action}</div>}
+        {action && <div className="w-full shrink-0 sm:w-auto">{action}</div>}
       </header>
       {children}
     </div>

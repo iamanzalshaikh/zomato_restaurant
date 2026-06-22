@@ -8,6 +8,7 @@ import {
   leaveRestaurantRoom,
   SERVER_EVENTS,
 } from '@/lib/socket';
+import { alertOrderUpdate } from '@/lib/pushNotifications';
 import type { NewOrderSocketPayload } from '@/types/api';
 
 export function useRestaurantSocket(restaurantId: string | null | undefined) {
@@ -22,17 +23,20 @@ export function useRestaurantSocket(restaurantId: string | null | undefined) {
     const onConnect = () => joinRestaurantRoom(restaurantId);
     const onNewOrder = (payload: NewOrderSocketPayload) => {
       qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      void qc.invalidateQueries({ queryKey: ['notifications', 'list'] });
+      void qc.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
       toast({
         title: 'New order received!',
         description: payload.orderNumber
           ? `Order #${payload.orderNumber} — check kitchen queue`
           : 'A customer just placed an order',
       });
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification('QuickBite — New order', {
-          body: payload.orderNumber ? `#${payload.orderNumber}` : 'Open orders to manage',
-        });
-      }
+      void alertOrderUpdate({
+        title: 'QuickBite — New order',
+        body: payload.orderNumber ? `#${payload.orderNumber}` : 'Open orders to manage',
+        orderId: payload.orderId,
+        type: 'new_order',
+      });
     };
     const onOrderUpdated = () => {
       qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
@@ -45,9 +49,9 @@ export function useRestaurantSocket(restaurantId: string | null | undefined) {
 
     if (socket.connected) onConnect();
 
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => undefined);
-    }
+    void import('@/lib/pushNotifications').then(({ registerForPushNotifications }) =>
+      registerForPushNotifications(),
+    );
 
     return () => {
       socket.off('connect', onConnect);

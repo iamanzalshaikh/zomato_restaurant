@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, RefreshCw, XCircle, Search, MoreHorizontal, UtensilsCrossed, Download, Printer } from 'lucide-react';
+import { Eye, RefreshCw, XCircle, Search, MoreHorizontal, UtensilsCrossed, Download, Printer, Phone } from 'lucide-react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -10,10 +10,13 @@ import {
   createColumnHelper,
 } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { cancelOrderByRestaurant, fetchRestaurantOrders, updateOrderStatus } from '@/services/orders';
+import { cancelOrderByRestaurant, fetchRestaurantOrders, updateOrderStatus, acceptOrder } from '@/services/orders';
 import { useRestaurantStore } from '@/stores/restaurantStore';
+import { useCompactLayout } from '@/hooks/use-mobile';
 import { PageShell } from '@/components/layout/PageShell';
 import { OrderDetailDialog } from '@/components/orders/OrderDetailDialog';
+import { AcceptOrderDialog } from '@/components/orders/AcceptOrderDialog';
+import { NEXT_STATUS, OrderStatusActions, confirmCancelOrder } from '@/components/orders/OrderStatusActions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -74,12 +77,6 @@ function orderMatchesTab(orderStatus: string, tab: OrderTab): boolean {
   return orderStatus === tab;
 }
 
-const NEXT_STATUS: Record<string, string> = {
-  PENDING: 'CONFIRMED',
-  CONFIRMED: 'PREPARING',
-  PREPARING: 'READY_FOR_PICKUP',
-};
-
 const STATUS_COLORS: Record<string, string> = {
   PENDING: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
   CONFIRMED: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
@@ -93,10 +90,12 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function OrdersPage() {
+  const compact = useCompactLayout();
   const qc = useQueryClient();
   const restaurantId = useRestaurantStore((s) => s.restaurantId) ?? '';
   const restaurant = useRestaurantStore((s) => s.restaurant);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [acceptOrderTarget, setAcceptOrderTarget] = useState<Order | null>(null);
   const [tab, setTab] = useState<OrderTab>('ALL');
   const [globalFilter, setGlobalFilter] = useState('');
 
@@ -118,6 +117,17 @@ export function OrdersPage() {
       toast.error(`Update failed: ${e.message}`),
   });
 
+  const acceptMut = useMutation({
+    mutationFn: ({ orderId, waitingMinutes }: { orderId: string; waitingMinutes: number }) =>
+      acceptOrder(orderId, waitingMinutes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      toast.success('Order accepted — customer notified');
+      setAcceptOrderTarget(null);
+    },
+    onError: (e: Error) => toast.error(`Accept failed: ${e.message}`),
+  });
+
   const cancelMut = useMutation({
     mutationFn: (orderId: string) => cancelOrderByRestaurant(orderId),
     onSuccess: () => {
@@ -129,7 +139,7 @@ export function OrdersPage() {
   });
 
   const orders = ordersQ.data ?? [];
-  
+
   // Filter by tab status first
   const filteredData = useMemo(() => {
     return tab === 'ALL' ? orders : orders.filter((o) => orderMatchesTab(o.orderStatus, tab));
@@ -198,14 +208,59 @@ export function OrdersPage() {
           );
         },
       }),
+      columnHelper.accessor('estimatedPreparationTime', {
+        header: 'Wait',
+        cell: (info) => {
+          const mins = info.getValue();
+          const order = info.row.original;
+          if (order.orderStatus === 'PENDING') {
+            return <span className="text-xs text-amber-600 font-semibold">Needs accept</span>;
+          }
+          if (!mins) return <span className="text-xs text-muted">—</span>;
+          return <span className="text-xs font-bold text-ink">{mins} min</span>;
+        },
+      }),
+      columnHelper.display({
+        id: 'rider',
+        header: 'Rider',
+        cell: (info) => {
+          const order = info.row.original;
+          const riderDoc =
+            typeof order.riderId === 'object' && order.riderId ? order.riderId : null;
+          if (!riderDoc) {
+            return <span className="text-xs text-muted">Not assigned</span>;
+          }
+          const riderUser =
+            riderDoc.userId && typeof riderDoc.userId === 'object' ? riderDoc.userId : null;
+          const name = riderUser?.fullName ?? riderDoc.fullName ?? 'Rider';
+          const mobile = riderUser?.mobile ?? riderDoc.mobile ?? null;
+          return (
+            <div className="flex flex-col gap-0.5 min-w-[120px]">
+              <span className="text-xs font-bold text-ink">{name}</span>
+              {mobile ? (
+                <a
+                  href={`tel:${mobile}`}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand hover:underline"
+                >
+                  <Phone className="size-3" />
+                  {mobile}
+                </a>
+              ) : (
+                <span className="text-[10px] text-muted">No phone</span>
+              )}
+            </div>
+          );
+        },
+      }),
       columnHelper.display({
         id: 'actions',
         header: () => <div className="text-right pr-4">Actions</div>,
         cell: (info) => {
           const order = info.row.original;
           const next = NEXT_STATUS[order.orderStatus];
+          const isPending = order.orderStatus === 'PENDING';
           const canCancel = !['DELIVERED', 'CANCELLED'].includes(order.orderStatus);
-          const busy = statusMut.isPending || cancelMut.isPending;
+          const busy = statusMut.isPending || cancelMut.isPending || acceptMut.isPending;
 
           return (
             <div className="flex items-center justify-end pr-2">
@@ -233,7 +288,16 @@ export function OrdersPage() {
                     Print KOT
                   </DropdownMenuItem>
 
-                  {next && (
+                  {isPending ? (
+                    <DropdownMenuItem
+                      disabled={busy}
+                      onClick={() => setAcceptOrderTarget(order)}
+                      className="gap-2.5 px-3 py-2 text-xs font-bold text-brand rounded-lg focus:bg-brand/5 focus:text-brand cursor-pointer"
+                    >
+                      <UtensilsCrossed className="size-3.5 text-brand" />
+                      Accept order
+                    </DropdownMenuItem>
+                  ) : next ? (
                     <DropdownMenuItem
                       disabled={busy}
                       onClick={() => statusMut.mutate({ orderId: order._id, orderStatus: next })}
@@ -242,7 +306,7 @@ export function OrdersPage() {
                       <UtensilsCrossed className="size-3.5 text-brand" />
                       Mark {next.replace(/_/g, ' ')}
                     </DropdownMenuItem>
-                  )}
+                  ) : null}
 
                   {canCancel && (
                     <>
@@ -250,14 +314,7 @@ export function OrdersPage() {
                       <DropdownMenuItem
                         disabled={busy}
                         onClick={() => {
-                          const orderNum = order.orderNumber ?? order._id.slice(-6).toUpperCase();
-                          toast.warning(`Cancel Order #${orderNum}?`, {
-                            description: "Are you sure you want to cancel this order?",
-                            action: {
-                              label: "Cancel Order",
-                              onClick: () => cancelMut.mutate(order._id),
-                            },
-                          });
+                          confirmCancelOrder(order, () => cancelMut.mutate(order._id));
                         }}
                         className="gap-2.5 px-3 py-2 text-xs font-bold text-rose-600 rounded-lg focus:bg-rose-50 focus:text-rose-600 cursor-pointer"
                       >
@@ -306,23 +363,25 @@ export function OrdersPage() {
             />
           </div>
           
-          {/* Status Enum Dropdown Filter */}
-          <Select value={tab} onValueChange={(val) => setTab(val as OrderTab)}>
-            <SelectTrigger className="h-9 w-full sm:w-48 rounded-xl border-black/10 bg-slate-50 text-xs font-semibold text-ink shrink-0 select-none md:hidden">
-              <SelectValue placeholder="Filter Status" />
-            </SelectTrigger>
-            <SelectContent position="popper" className="bg-white border border-black/5 rounded-xl shadow-md p-1">
-              {TABS.map((t) => (
-                <SelectItem
-                  key={t}
-                  value={t}
-                  className="text-xs font-bold text-ink rounded-lg focus:bg-slate-50 focus:text-brand cursor-pointer py-1.5"
-                >
-                  {TAB_LABELS[t]} ({tabCounts[t]})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Status filter — dropdown on wider web, chips on compact */}
+          {!compact && (
+            <Select value={tab} onValueChange={(val) => setTab(val as OrderTab)}>
+              <SelectTrigger className="h-9 w-full sm:w-48 rounded-xl border-black/10 bg-slate-50 text-xs font-semibold text-ink shrink-0 select-none lg:hidden">
+                <SelectValue placeholder="Filter Status" />
+              </SelectTrigger>
+              <SelectContent position="popper" className="bg-white border border-black/5 rounded-xl shadow-md p-1">
+                {TABS.map((t) => (
+                  <SelectItem
+                    key={t}
+                    value={t}
+                    className="text-xs font-bold text-ink rounded-lg focus:bg-slate-50 focus:text-brand cursor-pointer py-1.5"
+                  >
+                    {TAB_LABELS[t]} ({tabCounts[t]})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <Button
             variant="outline"
@@ -344,8 +403,9 @@ export function OrdersPage() {
         </div>
       }
     >
-      <div className="w-full space-y-6">
-        <div className="hidden md:flex flex-wrap gap-2">
+      <div className="w-full space-y-4 sm:space-y-6">
+        {!compact && (
+        <div className="hidden lg:flex flex-wrap gap-2">
           {TABS.map((t) => (
             <button
               key={t}
@@ -363,8 +423,10 @@ export function OrdersPage() {
             </button>
           ))}
         </div>
+        )}
 
-        <div className="flex md:hidden gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-thin">
+        {compact && (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-thin">
           {TABS.map((t) => (
             <button
               key={t}
@@ -381,8 +443,67 @@ export function OrdersPage() {
             </button>
           ))}
         </div>
+        )}
 
-        {/* TanStack Data Table Container */}
+        {compact ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {ordersQ.isLoading && (
+              <p className="col-span-full py-12 text-center text-sm text-muted">Loading queue…</p>
+            )}
+            {!ordersQ.isLoading && table.getRowModel().rows.length === 0 && (
+              <p className="col-span-full py-12 text-center text-sm text-muted">No orders matching filters.</p>
+            )}
+            {!ordersQ.isLoading &&
+              table.getRowModel().rows.map((row) => {
+                const order = row.original;
+                const customer =
+                  typeof order.customerId === 'object'
+                    ? order.customerId?.fullName ?? 'Customer'
+                    : 'Customer';
+                return (
+                  <article
+                    key={order._id}
+                    className="rounded-2xl border border-black/5 bg-white p-4 shadow-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-mono text-sm font-black text-ink">
+                          #{order.orderNumber ?? order._id.slice(-6).toUpperCase()}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs font-semibold text-muted">{customer}</p>
+                      </div>
+                      <span className="text-base font-black tabular-nums text-ink">₹{order.grandTotal}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-bold uppercase ${STATUS_COLORS[order.orderStatus] ?? ''}`}
+                      >
+                        {order.orderStatus.replace(/_/g, ' ')}
+                      </Badge>
+                      <span className="text-[10px] font-bold uppercase text-muted">{order.paymentMethod}</span>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-[11px] text-muted">
+                      {(order.orderItems ?? []).map((i) => `${i.quantity}× ${i.itemName}`).join(', ')}
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      <OrderStatusActions
+                        order={order}
+                        restaurant={restaurant}
+                        busy={statusMut.isPending || cancelMut.isPending || acceptMut.isPending}
+                        variant="stack"
+                        showView
+                        onAcceptClick={() => setAcceptOrderTarget(order)}
+                        onAdvance={(next) => statusMut.mutate({ orderId: order._id, orderStatus: next })}
+                        onCancel={() => cancelMut.mutate(order._id)}
+                        onViewDetails={() => setDetailId(order._id)}
+                      />
+                    </div>
+                  </article>
+                );
+              })}
+          </div>
+        ) : (
         <div className="rounded-2xl border border-black/5 bg-white overflow-hidden shadow-xs">
           <Table>
             <TableHeader>
@@ -425,6 +546,7 @@ export function OrdersPage() {
             </TableBody>
           </Table>
         </div>
+        )}
 
         {/* Pagination Controls */}
         <div className="flex items-center justify-between border-t border-black/5 pt-4">
@@ -459,6 +581,16 @@ export function OrdersPage() {
         open={Boolean(detailId)}
         onOpenChange={(open) => !open && setDetailId(null)}
         restaurantId={restaurantId}
+      />
+
+      <AcceptOrderDialog
+        order={acceptOrderTarget}
+        open={Boolean(acceptOrderTarget)}
+        onOpenChange={(open) => !open && setAcceptOrderTarget(null)}
+        busy={acceptMut.isPending}
+        onAccept={async (orderId, waitingMinutes) => {
+          await acceptMut.mutateAsync({ orderId, waitingMinutes });
+        }}
       />
     </PageShell>
   );

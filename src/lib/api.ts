@@ -1,5 +1,6 @@
-import { API_URL } from '@/config/env';
+import { getApiUrl } from '@/config/env';
 import { useAuthStore } from '@/stores/authStore';
+import { loginLog } from '@/lib/loginLogger';
 
 export type ApiError = Error & { status?: number; data?: unknown };
 
@@ -10,7 +11,7 @@ async function refreshTokens(): Promise<string | null> {
   if (!refreshToken) return null;
 
   try {
-    const res = await fetch(`${API_URL}/auth/refresh-token`, {
+    const res = await fetch(`${getApiUrl()}/auth/refresh-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
@@ -35,7 +36,7 @@ export async function apiFetch<T = unknown>(
   path: string,
   init?: RequestInit & { _retry?: boolean },
 ): Promise<T> {
-  const url = path.startsWith('http') ? path : `${API_URL}${path}`;
+  const url = path.startsWith('http') ? path : `${getApiUrl()}${path}`;
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has('Content-Type') && init?.body) {
     headers.set('Content-Type', 'application/json');
@@ -44,12 +45,24 @@ export async function apiFetch<T = unknown>(
   const token = useAuthStore.getState().accessToken;
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  const res = await fetch(url, { ...init, headers });
+  loginLog('info', `API ${init?.method ?? 'GET'} ${path}`, { url });
+
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, headers });
+  } catch (err) {
+    loginLog('error', `Network error on ${path}`, {
+      url,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 
   if (res.status !== 401) {
     const text = await res.text();
     const data = text ? JSON.parse(text) : null;
     if (!res.ok) {
+      loginLog('error', `API error ${res.status} on ${path}`, data);
       const err = new Error((data as { message?: string })?.message ?? `Request failed: ${res.status}`) as ApiError;
       err.status = res.status;
       err.data = data;

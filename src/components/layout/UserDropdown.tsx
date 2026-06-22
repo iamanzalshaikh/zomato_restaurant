@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { User, LogOut } from 'lucide-react';
 
-export function UserDropdown() {
+export function UserDropdown({ compact = false }: { compact?: boolean }) {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const refreshToken = useAuthStore((s) => s.refreshToken);
@@ -38,15 +38,17 @@ export function UserDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <div className="flex items-center gap-3 pl-2 cursor-pointer group select-none">
-          <div className="flex flex-col items-end opacity-90 group-hover:opacity-100 transition-opacity">
-            <span className="text-xs font-bold text-ink leading-none">
-              {user?.fullName ?? 'Restaurant Owner'}
-            </span>
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted mt-1">
-              {user?.role?.replace('_', ' ') ?? 'Owner'}
-            </span>
-          </div>
+        <div className="flex items-center gap-2 pl-1 cursor-pointer group select-none sm:gap-3 sm:pl-2">
+          {!compact && (
+            <div className="hidden flex-col items-end opacity-90 group-hover:opacity-100 transition-opacity sm:flex">
+              <span className="max-w-[120px] truncate text-xs font-bold text-ink leading-none">
+                {user?.fullName ?? 'Restaurant Owner'}
+              </span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted mt-1">
+                {user?.role?.replace('_', ' ') ?? 'Owner'}
+              </span>
+            </div>
+          )}
           <div className="relative">
             <div className="h-9 w-9 overflow-hidden rounded-full border border-black/10 bg-gradient-to-br from-brand/20 to-brand/5 flex items-center justify-center text-brand font-black text-xs transition-all duration-300 group-hover:border-brand group-hover:scale-105 shadow-sm active:scale-95">
               {user?.profileImage ? (

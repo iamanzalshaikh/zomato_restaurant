@@ -1,9 +1,15 @@
 import { DEFAULT_RESTAURANT_ID } from '@/config/env';
 import { apiFetch } from '@/lib/api';
+import type { RestaurantAnalytics } from '@/types/analytics';
 import type { ApiResponse, EarningsSummary, Restaurant, Settlement } from '@/types/api';
 
 export async function getRestaurantById(restaurantId: string) {
   const body = await apiFetch<ApiResponse<{ restaurant: Restaurant }>>(`/restaurants/${restaurantId}`);
+  return body.data.restaurant;
+}
+
+export async function getMyRestaurant() {
+  const body = await apiFetch<ApiResponse<{ restaurant: Restaurant }>>('/restaurants/mine');
   return body.data.restaurant;
 }
 
@@ -30,10 +36,10 @@ export async function updateRestaurantOpenStatus(restaurantId: string, isOpen: b
 }
 
 export async function getRestaurantAnalytics(restaurantId: string) {
-  const body = await apiFetch<ApiResponse<Record<string, unknown>>>(
+  const body = await apiFetch<ApiResponse<{ analytics: RestaurantAnalytics }>>(
     `/restaurants/analytics/${restaurantId}`,
   );
-  return body.data;
+  return body.data.analytics;
 }
 
 export async function getRestaurantEarnings(restaurantId: string) {
@@ -60,19 +66,10 @@ export async function resolveOwnerRestaurantId(): Promise<string | null> {
     }
   }
 
-  const search = await apiFetch<ApiResponse<{ restaurants?: Restaurant[] }>>(
-    '/restaurants/search?q=demo&limit=20',
-  );
-  const list = search.data.restaurants ?? [];
-
-  for (const r of list) {
-    try {
-      await apiFetch(`/orders/restaurant/${r._id}?limit=1`);
-      return r._id;
-    } catch {
-      // not owner
-    }
+  try {
+    const body = await apiFetch<ApiResponse<{ restaurant: Restaurant }>>('/restaurants/mine');
+    return body.data.restaurant._id;
+  } catch {
+    return null;
   }
-
-  return null;
 }

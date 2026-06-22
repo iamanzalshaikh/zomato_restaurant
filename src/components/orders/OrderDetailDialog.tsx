@@ -1,11 +1,15 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bike, MapPin, Loader2 } from 'lucide-react';
+import { Bike, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  acceptOrder,
   assignRiderToOrder,
+  cancelOrderByRestaurant,
   fetchAvailableRiders,
   fetchOrderById,
   trackOrder,
+  updateOrderStatus,
 } from '@/services/orders';
 import {
   Dialog,
@@ -15,7 +19,6 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -23,6 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { AcceptOrderDialog } from '@/components/orders/AcceptOrderDialog';
+import { OrderStatusActions } from '@/components/orders/OrderStatusActions';
+import { useRestaurantStore } from '@/stores/restaurantStore';
 import type { Order } from '@/types/api';
 
 type Props = {
@@ -46,6 +52,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function OrderDetailDialog({ orderId, open, onOpenChange, restaurantId }: Props) {
   const qc = useQueryClient();
+  const restaurant = useRestaurantStore((s) => s.restaurant);
+  const [acceptOpen, setAcceptOpen] = useState(false);
 
   const orderQ = useQuery({
     queryKey: ['order', orderId],
@@ -57,7 +65,7 @@ export function OrderDetailDialog({ orderId, open, onOpenChange, restaurantId }:
     queryKey: ['order-track', orderId],
     queryFn: () => trackOrder(orderId!),
     enabled: Boolean(orderId) && open,
-    refetchInterval: 15_000,
+    staleTime: 60_000,
   });
 
   const ridersQ = useQuery({
@@ -77,37 +85,97 @@ export function OrderDetailDialog({ orderId, open, onOpenChange, restaurantId }:
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const statusMut = useMutation({
+    mutationFn: (orderStatus: string) => updateOrderStatus(orderId!, orderStatus),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      qc.invalidateQueries({ queryKey: ['order-track', orderId] });
+      if (restaurantId) qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      toast.success('Order status updated');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const acceptMut = useMutation({
+    mutationFn: (waitingMinutes: number) => acceptOrder(orderId!, waitingMinutes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      qc.invalidateQueries({ queryKey: ['order-track', orderId] });
+      if (restaurantId) qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      toast.success('Order accepted — customer notified');
+      setAcceptOpen(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: () => cancelOrderByRestaurant(orderId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      if (restaurantId) qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      toast.success('Order cancelled');
+      onOpenChange(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const order = orderQ.data;
   const track = trackQ.data;
-  const loc = track?.liveLocation ?? track?.riderLocation;
+  const actionBusy =
+    statusMut.isPending || acceptMut.isPending || cancelMut.isPending || assignMut.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md bg-white border border-black/5 rounded-2xl p-6 shadow-xl">
-        <DialogHeader className="pb-2">
-          <DialogTitle className="text-base font-extrabold text-ink">
-            Order #{order?.orderNumber ?? orderId?.slice(-6).toUpperCase() ?? '…'}
-          </DialogTitle>
-        </DialogHeader>
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg bg-white border border-black/5 rounded-2xl shadow-xl">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <DialogHeader className="pb-2 pr-8">
+            <DialogTitle className="text-base font-extrabold text-ink">
+              Order #{order?.orderNumber ?? orderId?.slice(-6).toUpperCase() ?? '…'}
+            </DialogTitle>
+          </DialogHeader>
 
-        {orderQ.isLoading && (
-          <div className="space-y-4 py-4">
-            <Skeleton className="h-6 w-32 bg-slate-100 rounded-lg animate-pulse" />
-            <Skeleton className="h-24 w-full bg-slate-100 rounded-xl animate-pulse" />
+          {orderQ.isLoading && (
+            <div className="space-y-4 py-4">
+              <Skeleton className="h-6 w-32 bg-slate-100 rounded-lg animate-pulse" />
+              <Skeleton className="h-24 w-full bg-slate-100 rounded-xl animate-pulse" />
+            </div>
+          )}
+
+          {order && (
+            <OrderDetailBody
+              order={order}
+              track={track}
+              riders={ridersQ.data ?? []}
+              ridersLoading={ridersQ.isLoading}
+              assignPending={assignMut.isPending}
+              onAssign={(userId) => assignMut.mutate(userId)}
+            />
+          )}
+        </div>
+
+        {order && (
+          <div className="shrink-0 border-t border-black/5 bg-white p-4 sm:rounded-b-2xl">
+            <OrderStatusActions
+              order={order}
+              restaurant={restaurant}
+              busy={actionBusy}
+              variant="stack"
+              onAcceptClick={() => setAcceptOpen(true)}
+              onAdvance={(next) => statusMut.mutate(next)}
+              onCancel={() => cancelMut.mutate()}
+            />
           </div>
         )}
 
-        {order && (
-          <OrderDetailBody
-            order={order}
-            track={track}
-            loc={loc}
-            riders={ridersQ.data ?? []}
-            ridersLoading={ridersQ.isLoading}
-            assignPending={assignMut.isPending}
-            onAssign={(userId) => assignMut.mutate(userId)}
-          />
-        )}
+        <AcceptOrderDialog
+          order={order ?? null}
+          open={acceptOpen}
+          onOpenChange={setAcceptOpen}
+          busy={acceptMut.isPending}
+          onAccept={async (_orderId, waitingMinutes) => {
+            await acceptMut.mutateAsync(waitingMinutes);
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -116,7 +184,6 @@ export function OrderDetailDialog({ orderId, open, onOpenChange, restaurantId }:
 function OrderDetailBody({
   order,
   track,
-  loc,
   riders,
   ridersLoading,
   assignPending,
@@ -124,7 +191,6 @@ function OrderDetailBody({
 }: {
   order: Order;
   track?: Awaited<ReturnType<typeof trackOrder>>;
-  loc?: { latitude: number; longitude: number };
   riders: Awaited<ReturnType<typeof fetchAvailableRiders>>;
   ridersLoading: boolean;
   assignPending: boolean;
@@ -137,13 +203,14 @@ function OrderDetailBody({
   const mobile =
     typeof order.customerId === 'object' ? order.customerId?.mobile : undefined;
 
-  const rider =
+  const riderDoc =
     typeof order.riderId === 'object' && order.riderId ? order.riderId : null;
+  const riderUser =
+    riderDoc?.userId && typeof riderDoc.userId === 'object' ? riderDoc.userId : null;
+  const riderName = riderUser?.fullName ?? riderDoc?.fullName ?? 'Rider';
+  const riderMobile = riderUser?.mobile ?? riderDoc?.mobile;
 
-  const canAssign = order.orderStatus === 'READY_FOR_PICKUP' && !rider;
-  const mapUrl = loc
-    ? `https://www.openstreetmap.org/?mlat=${loc.latitude}&mlon=${loc.longitude}#map=16/${loc.latitude}/${loc.longitude}`
-    : null;
+  const canAssign = order.orderStatus === 'READY_FOR_PICKUP' && !riderDoc;
 
   return (
     <div className="space-y-5 text-sm">
@@ -205,33 +272,22 @@ function OrderDetailBody({
         </div>
       )}
 
-      {rider && (
+      {riderDoc && (
         <div className="rounded-xl bg-blue-500/5 border border-blue-500/10 p-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 flex items-center gap-1">
             <Bike className="size-3" /> Assigned rider
           </p>
-          <p className="font-bold text-ink mt-1">{rider.fullName ?? 'Rider'}</p>
-          {rider.mobile && <p className="text-xs text-muted">{rider.mobile}</p>}
-        </div>
-      )}
-
-      {mapUrl && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted flex items-center gap-1">
-            <MapPin className="size-3" /> Live location
-          </p>
-          <div className="rounded-xl overflow-hidden border border-black/5 h-36 bg-slate-100">
-            <iframe
-              title="Rider map"
-              className="w-full h-full border-0"
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${loc!.longitude - 0.01}%2C${loc!.latitude - 0.01}%2C${loc!.longitude + 0.01}%2C${loc!.latitude + 0.01}&layer=mapnik&marker=${loc!.latitude}%2C${loc!.longitude}`}
-            />
-          </div>
-          <Button variant="outline" size="sm" className="w-full text-xs" asChild>
-            <a href={mapUrl} target="_blank" rel="noreferrer">
-              Open full map
+          <p className="font-bold text-ink mt-1">{riderName}</p>
+          {riderDoc.riderCode ? (
+            <p className="text-[10px] text-muted mt-0.5">ID: {riderDoc.riderCode}</p>
+          ) : null}
+          {riderMobile ? (
+            <a href={`tel:${riderMobile}`} className="inline-flex items-center gap-1 text-xs font-semibold text-brand mt-2 hover:underline">
+              Call {riderMobile}
             </a>
-          </Button>
+          ) : (
+            <p className="text-xs text-muted mt-1">Phone not available</p>
+          )}
         </div>
       )}
 
