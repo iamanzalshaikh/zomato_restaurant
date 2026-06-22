@@ -42,6 +42,8 @@ export function useRestaurantInAppNotifications(enabled: boolean) {
         if (!alive) return;
 
         qc.setQueryData(['notifications', 'restaurant'], items);
+        void qc.invalidateQueries({ queryKey: ['notifications', 'list'] });
+        void qc.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
 
         if (!bootstrappedRef.current) {
           items.forEach((item) => seenRef.current.add(item._id));

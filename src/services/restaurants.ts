@@ -8,6 +8,11 @@ export async function getRestaurantById(restaurantId: string) {
   return body.data.restaurant;
 }
 
+export async function getMyRestaurant() {
+  const body = await apiFetch<ApiResponse<{ restaurant: Restaurant }>>('/restaurants/mine');
+  return body.data.restaurant;
+}
+
 export async function updateRestaurant(restaurantId: string, payload: Partial<Restaurant>) {
   const body = await apiFetch<ApiResponse<{ restaurant: Restaurant }>>(
     `/restaurants/${restaurantId}`,
@@ -61,19 +66,10 @@ export async function resolveOwnerRestaurantId(): Promise<string | null> {
     }
   }
 
-  const search = await apiFetch<ApiResponse<{ restaurants?: Restaurant[] }>>(
-    '/restaurants/search?q=demo&limit=20',
-  );
-  const list = search.data.restaurants ?? [];
-
-  for (const r of list) {
-    try {
-      await apiFetch(`/orders/restaurant/${r._id}?limit=1`);
-      return r._id;
-    } catch {
-      // not owner
-    }
+  try {
+    const body = await apiFetch<ApiResponse<{ restaurant: Restaurant }>>('/restaurants/mine');
+    return body.data.restaurant._id;
+  } catch {
+    return null;
   }
-
-  return null;
 }

@@ -1,63 +1,72 @@
 import { Outlet } from 'react-router-dom';
 import { SidebarComponent } from './Sidebar';
 import { BottomNav } from './BottomNav';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { UserDropdown } from './UserDropdown';
 import { useBootstrapRestaurant } from '@/hooks/useBootstrapRestaurant';
 import { useRestaurantInAppNotifications } from '@/hooks/useRestaurantInAppNotifications';
 import { useRestaurantSocket } from '@/hooks/useRestaurantSocket';
+import { useRestaurantPush } from '@/hooks/useRestaurantPush';
+import { useCompactLayout } from '@/hooks/use-mobile';
 import { useRestaurantStore } from '@/stores/restaurantStore';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 
 export function AppLayout() {
+  const compact = useCompactLayout();
   const { isLoading, error } = useBootstrapRestaurant();
   const restaurant = useRestaurantStore((s) => s.restaurant);
   useRestaurantSocket(restaurant?._id);
   useRestaurantInAppNotifications(Boolean(restaurant?._id));
+  useRestaurantPush(Boolean(restaurant?._id));
 
   return (
-    <SidebarProvider>
-      <SidebarComponent />
+    <SidebarProvider defaultOpen={!compact}>
+      <div className="flex min-h-svh w-full min-w-0">
+        <SidebarComponent />
 
-      <div className="flex min-w-0 flex-1 flex-col h-screen overflow-hidden">
-        {/* Top Header */}
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-black/5 bg-white px-6 shadow-sm">
-          <div className="flex items-center gap-4">
-            <SidebarTrigger className="text-muted hover:text-ink" />
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm font-extrabold text-ink md:text-base">
-                {restaurant?.restaurantName ?? 'QuickBite'}
-              </h2>
-              {restaurant && (
-                <span
-                  className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
-                    restaurant.isOpen ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'
-                  }`}
-                >
-                  {restaurant.isOpen ? 'Open' : 'Closed'}
-                </span>
+        <div className="flex min-w-0 flex-1 flex-col h-svh overflow-hidden">
+          <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-black/5 bg-white px-4 shadow-sm sm:h-16 sm:px-6">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+              {!compact && (
+                <SidebarTrigger className="shrink-0 text-muted hover:text-ink" />
               )}
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate text-sm font-extrabold text-ink sm:text-base">
+                  {restaurant?.restaurantName ?? 'QuickBite'}
+                </h2>
+                {restaurant && (
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase sm:px-2.5 sm:text-[10px] ${
+                      restaurant.isOpen ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'
+                    }`}
+                  >
+                    {restaurant.isOpen ? 'Open' : 'Closed'}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <UserDropdown />
-          </div>
-        </header>
+            <div className="flex shrink-0 items-center gap-2">
+              <NotificationBell enabled={Boolean(restaurant?._id)} />
+              <UserDropdown compact={compact} />
+            </div>
+          </header>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-surface">
-          {isLoading && (
-            <div className="flex h-40 items-center justify-center text-sm font-medium text-muted animate-pulse">
-              Loading restaurant…
-            </div>
-          )}
-          {error && !isLoading && (
-            <div className="m-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:m-6">
-              {(error as Error).message}
-            </div>
-          )}
-          {!isLoading && <Outlet />}
-        </main>
+          <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-surface">
+            {isLoading && (
+              <div className="flex h-40 items-center justify-center text-sm font-medium text-muted animate-pulse">
+                Loading restaurant…
+              </div>
+            )}
+            {error && !isLoading && (
+              <div className="m-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:m-6">
+                {(error as Error).message}
+              </div>
+            )}
+            {!isLoading && <Outlet />}
+          </main>
 
-        <BottomNav />
+          {compact && <BottomNav />}
+        </div>
       </div>
     </SidebarProvider>
   );

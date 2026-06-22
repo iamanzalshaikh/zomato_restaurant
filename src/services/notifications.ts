@@ -35,3 +35,10 @@ export async function fetchUnreadNotificationCount() {
   const items = await fetchNotifications(1, 50);
   return items.filter((n) => !n.isRead).length;
 }
+
+export async function registerDeviceToken(token: string, platform: 'android' | 'ios' | 'web') {
+  return apiFetch('/notifications/device-token', {
+    method: 'POST',
+    body: JSON.stringify({ token, platform }),
+  });
+}

@@ -13,6 +13,7 @@ import { ReviewsPage } from '@/pages/ReviewsPage';
 import { FinancePage } from '@/pages/FinancePage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { SupportPage } from '@/pages/SupportPage';
+import { NotificationsPage } from '@/pages/NotificationsPage';
 import { useAuthStore } from '@/stores/authStore';
 
 function PublicOnly({ children }: { children: ReactNode }) {
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="finance" element={<FinancePage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="support" element={<SupportPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Route>

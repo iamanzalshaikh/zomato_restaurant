@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { IndianRupee, Loader2, Wallet, ArrowDownToLine } from 'lucide-react';
 import { getRestaurantEarnings, getRestaurantSettlements } from '@/services/restaurants';
 import { useRestaurantStore } from '@/stores/restaurantStore';
+import { useCompactLayout } from '@/hooks/use-mobile';
 import { PageShell } from '@/components/layout/PageShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,6 +29,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export function FinancePage() {
+  const compact = useCompactLayout();
   const restaurantId = useRestaurantStore((s) => s.restaurantId) ?? '';
   const [settlementPage, setSettlementPage] = useState(1);
 
@@ -68,7 +70,7 @@ export function FinancePage() {
             </div>
           ) : (
             <>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Card className="border-black/5 shadow-sm">
                   <CardHeader className="pb-2">
                     <CardDescription className="flex items-center gap-1.5">
@@ -133,6 +135,37 @@ export function FinancePage() {
             </Card>
           ) : (
             <>
+              {compact ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {settlements.map((s) => (
+                    <Card key={s._id} className="border-black/5 shadow-sm">
+                      <CardContent className="p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-mono text-xs font-bold text-ink">{s.settlementNumber}</p>
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] font-black uppercase ${STATUS_STYLE[s.status] ?? ''}`}
+                          >
+                            {s.status}
+                          </Badge>
+                        </div>
+                        <p className="text-lg font-black text-ink">{money(s.netPayable)}</p>
+                        <p className="text-xs text-muted">
+                          {s.orderCount} orders · Gross {money(s.grossFoodSales)} · Comm −
+                          {money(s.totalCommission)}
+                        </p>
+                        <p className="text-[10px] text-muted">
+                          {s.paidAt
+                            ? new Date(s.paidAt).toLocaleDateString()
+                            : s.createdAt
+                              ? new Date(s.createdAt).toLocaleDateString()
+                              : '—'}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
               <div className="rounded-xl border border-black/5 bg-white overflow-hidden">
                 <Table>
                   <TableHeader>
@@ -174,6 +207,7 @@ export function FinancePage() {
                   </TableBody>
                 </Table>
               </div>
+              )}
               {totalPages > 1 && (
                 <div className="flex justify-center gap-3 pt-4">
                   <Button
