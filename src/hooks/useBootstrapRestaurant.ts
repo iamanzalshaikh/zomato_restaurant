@@ -1,25 +1,27 @@
 import { useQuery } from '@tanstack/react-query';
-import { getRestaurantById, resolveOwnerRestaurantId } from '@/services/restaurants';
+import { getMyRestaurant } from '@/services/restaurants';
+import { useAuthStore } from '@/stores/authStore';
 import { useRestaurantStore } from '@/stores/restaurantStore';
 
 export function useBootstrapRestaurant() {
-  const { restaurantId, restaurant, setRestaurant } = useRestaurantStore();
+  const userId = useAuthStore((s) => s.user?._id);
+  const { restaurant, setRestaurant } = useRestaurantStore();
 
   const q = useQuery({
-    queryKey: ['owner-restaurant', restaurantId],
+    queryKey: ['owner-restaurant', userId],
     queryFn: async () => {
-      let id = restaurantId;
-      if (!id) {
-        id = await resolveOwnerRestaurantId();
-        if (!id) throw new Error('No restaurant linked to this owner account.');
-      }
-      const r = await getRestaurantById(id);
+      const r = await getMyRestaurant();
       setRestaurant(r);
       return r;
     },
-    enabled: !restaurant,
+    enabled: Boolean(userId),
     retry: 1,
+    staleTime: 0,
   });
 
-  return { restaurant: restaurant ?? q.data ?? null, isLoading: q.isLoading, error: q.error };
+  return {
+    restaurant: q.data ?? restaurant ?? null,
+    isLoading: q.isLoading,
+    error: q.error,
+  };
 }

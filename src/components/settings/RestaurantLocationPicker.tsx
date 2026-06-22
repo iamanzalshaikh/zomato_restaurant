@@ -3,6 +3,7 @@ import { MapPin, LocateFixed, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { GoogleRestaurantMapPicker } from '@/components/map/GoogleRestaurantMapPicker';
 import { reverseGeocode } from '@/services/geocode';
+import { getCurrentPosition } from '@/lib/geolocation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -90,19 +91,15 @@ export function RestaurantLocationPicker({
     };
   }, [lat, lng, fillAddressFromCoords]);
 
-  function useMyLocation() {
-    if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported in this browser');
-      return;
+  async function useMyLocation() {
+    try {
+      const pos = await getCurrentPosition();
+      skipGeocodeRef.current = true;
+      applyCoords(pos.latitude, pos.longitude, true);
+      toast.success('Location updated from GPS');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not get location');
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        skipGeocodeRef.current = true;
-        applyCoords(pos.coords.latitude, pos.coords.longitude, true);
-      },
-      () => toast.error('Location permission denied'),
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
   }
 
   return (

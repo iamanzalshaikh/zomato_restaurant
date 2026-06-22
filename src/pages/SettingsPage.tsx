@@ -28,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { registerForPushNotifications, isPushEnabled } from '@/lib/pushNotifications';
 import { WEEKDAYS, type WeeklyHour } from '@/types/api';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -245,14 +246,10 @@ export function SettingsPage() {
   });
 
   async function requestNotifications() {
-    if (!('Notification' in window)) {
-      toast.error('Browser notifications are not supported');
-      return;
-    }
-    const perm = await Notification.requestPermission();
-    setNotificationsEnabled(perm === 'granted');
-    toast[perm === 'granted' ? 'success' : 'error'](
-      perm === 'granted' ? 'Notifications enabled' : 'Permission denied',
+    const ok = await registerForPushNotifications();
+    setNotificationsEnabled(ok || (await isPushEnabled()));
+    toast[ok ? 'success' : 'error'](
+      ok ? 'Order alerts enabled (push-style notifications)' : 'Permission denied',
     );
   }
 
@@ -518,7 +515,7 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between gap-4">
-                <p className="text-sm">Browser pop-ups for new orders (with socket alerts)</p>
+                <p className="text-sm">Push-style alerts for new orders (native + browser, like customer/rider apps)</p>
                 <Button variant={notificationsEnabled ? 'outline' : 'default'} size="sm" onClick={requestNotifications}>
                   {notificationsEnabled ? 'Re-check' : 'Enable'}
                 </Button>

@@ -4,7 +4,21 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { Award, Loader2, Mail, ShieldCheck } from 'lucide-react';
 import { sendRestaurantEmailOtp, verifyRestaurantEmailOtp } from '@/services/auth';
+import {
+  discoverWorkingNativeHost,
+  getEnvInfo,
+  getNativeHostCandidates,
+} from '@/config/env';
+import {
+  clearLoginLogs,
+  getLoginLogs,
+  loginLog,
+  pingBackendHealth,
+  subscribeLoginLogs,
+  type LoginLogEntry,
+} from '@/lib/loginLogger';
 import { useAuthStore } from '@/stores/authStore';
+import { useRestaurantStore } from '@/stores/restaurantStore';
 import type { AuthUser } from '@/types/api';
 
 type Step = 'email' | 'otp';
@@ -15,9 +29,108 @@ function assertRestaurantOwner(user: AuthUser) {
   }
 }
 
+function LoginDebugPanel({
+  envInfo,
+  healthStatus,
+  onPing,
+  pinging,
+}: {
+  envInfo: ReturnType<typeof getEnvInfo>;
+  healthStatus: string;
+  onPing: () => void;
+  pinging: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+  const [logs, setLogs] = useState<LoginLogEntry[]>(getLoginLogs());
+
+  useEffect(() => subscribeLoginLogs(() => setLogs(getLoginLogs())), []);
+
+  return (
+    <div className="w-full rounded-xl border border-slate-200 bg-slate-50 text-left">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500"
+      >
+        Debug logs
+        <span>{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div className="space-y-2 border-t border-slate-200 px-3 py-2">
+          <div className="space-y-0.5 text-[10px] leading-relaxed text-slate-600">
+            <p>
+              <span className="font-semibold">Try hosts:</span>{' '}
+              {envInfo.hostCandidates?.join(' → ') || '—'}
+            </p>
+            <p>
+              <span className="font-semibold">API:</span> {envInfo.apiUrl}
+            </p>
+            <p>
+              <span className="font-semibold">Socket:</span> {envInfo.socketUrl}
+            </p>
+            <p>
+              <span className="font-semibold">Health:</span> {healthStatus}
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onPing}
+              disabled={pinging}
+              className="rounded-lg bg-slate-800 px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-50"
+            >
+              {pinging ? 'Pinging…' : 'Ping backend'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                clearLoginLogs();
+                loginLog('info', 'Logs cleared');
+              }}
+              className="rounded-lg border border-slate-300 px-2 py-1 text-[10px] font-semibold text-slate-600"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="max-h-32 overflow-y-auto rounded-lg bg-slate-900 p-2 font-mono text-[9px] leading-relaxed text-slate-200">
+            {logs.length === 0 ? (
+              <p className="text-slate-400">No logs yet…</p>
+            ) : (
+              logs.map((log) => (
+                <div key={log.id} className="mb-1.5 border-b border-slate-700 pb-1 last:border-0">
+                  <span
+                    className={
+                      log.level === 'error'
+                        ? 'text-red-400'
+                        : log.level === 'success'
+                          ? 'text-emerald-400'
+                          : log.level === 'warn'
+                            ? 'text-amber-400'
+                            : 'text-sky-300'
+                    }
+                  >
+                    [{log.time}] {log.message}
+                  </span>
+                  {log.detail ? (
+                    <pre className="mt-0.5 whitespace-pre-wrap break-all text-slate-400">{log.detail}</pre>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const clearRestaurant = useRestaurantStore((s) => s.clearRestaurant);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
 
   useEffect(() => {
@@ -30,8 +143,40 @@ export function LoginPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [resendTimer, setResendTimer] = useState(0);
   const [devOtpHint, setDevOtpHint] = useState<string | null>(null);
+  const [healthStatus, setHealthStatus] = useState('Not checked');
+  const [pinging, setPinging] = useState(false);
+  const [envInfo, setEnvInfo] = useState(getEnvInfo());
 
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    loginLog('info', 'Login page mounted', envInfo);
+  }, []);
+
+  const runHealthPing = async () => {
+    setPinging(true);
+    setHealthStatus('Checking…');
+    loginLog('info', 'Discovering backend host', { candidates: getNativeHostCandidates() });
+
+    const host = await discoverWorkingNativeHost();
+    setEnvInfo(getEnvInfo());
+
+    if (host) {
+      const result = await pingBackendHealth(getEnvInfo().apiUrl);
+      setHealthStatus(`OK via ${host} (${result.status}) — ${result.ms}ms`);
+      loginLog('success', `Using backend host: ${host}`);
+    } else {
+      setHealthStatus(
+        `Failed — tried: ${getNativeHostCandidates().join(', ')}. Check firewall & backend.`,
+      );
+      loginLog('error', 'No reachable backend host', getNativeHostCandidates());
+    }
+    setPinging(false);
+  };
+
+  useEffect(() => {
+    void runHealthPing();
+  }, []);
 
   useEffect(() => {
     if (resendTimer <= 0) return;
@@ -40,7 +185,12 @@ export function LoginPage() {
   }, [resendTimer]);
 
   const finishAuth = (data: { user: AuthUser; accessToken: string; refreshToken: string }) => {
+    loginLog('success', 'Login complete — redirecting', {
+      email: data.user.email,
+      role: data.user.role,
+    });
     assertRestaurantOwner(data.user);
+    clearRestaurant();
     setAuth(data.user, data.accessToken, data.refreshToken);
     navigate('/', { replace: true });
   };
@@ -48,19 +198,24 @@ export function LoginPage() {
   const sendOtp = useMutation({
     mutationFn: () => sendRestaurantEmailOtp(email.trim().toLowerCase()),
     onSuccess: (data) => {
+      loginLog('success', 'Send OTP UI success', { hasDevOtp: Boolean(data.devOtp) });
       setStep('otp');
       setResendTimer(60);
       setErrorMsg('');
       if (data.devOtp) setDevOtpHint(data.devOtp);
       setTimeout(() => otpInputRefs.current[0]?.focus(), 120);
     },
-    onError: (err: Error) => setErrorMsg(err.message),
+    onError: (err: Error) => {
+      loginLog('error', 'Send OTP UI error', err.message);
+      setErrorMsg(err.message || 'Failed to fetch — check Debug logs & Ping backend');
+    },
   });
 
   const verifyOtp = useMutation({
     mutationFn: () => verifyRestaurantEmailOtp(email.trim().toLowerCase(), otp.join('')),
     onSuccess: finishAuth,
     onError: (err: Error) => {
+      loginLog('error', 'Verify OTP UI error', err.message);
       setErrorMsg(err.message);
       setOtp(Array(6).fill(''));
       setTimeout(() => otpInputRefs.current[0]?.focus(), 80);
@@ -74,9 +229,11 @@ export function LoginPage() {
     setErrorMsg('');
     setDevOtpHint(null);
     if (!email.trim().includes('@')) {
+      loginLog('warn', 'Invalid email format', { email });
       setErrorMsg('Please enter a valid Gmail / email address');
       return;
     }
+    loginLog('info', 'Send OTP form submitted', { email: email.trim().toLowerCase() });
     sendOtp.mutate();
   };
 
@@ -146,11 +303,18 @@ export function LoginPage() {
         </div>
       )}
 
-      {devOtpHint && import.meta.env.DEV && (
+      {devOtpHint && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-[12px] font-semibold text-amber-800">
           Dev OTP (check Gmail or use): <span className="font-mono">{devOtpHint}</span>
         </div>
       )}
+
+      <LoginDebugPanel
+        envInfo={envInfo}
+        healthStatus={healthStatus}
+        onPing={runHealthPing}
+        pinging={pinging}
+      />
 
       {step === 'email' && (
         <form onSubmit={handleEmailSubmit} className="flex flex-col gap-4">

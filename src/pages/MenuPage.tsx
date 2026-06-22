@@ -22,6 +22,7 @@ import {
   updateMenuItem,
 } from '@/services/menu';
 import { useRestaurantStore } from '@/stores/restaurantStore';
+import { useCompactLayout } from '@/hooks/use-mobile';
 import { PageShell } from '@/components/layout/PageShell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -121,6 +122,7 @@ function categoryNameOf(item: MenuItem) {
 }
 
 export function MenuPage() {
+  const compact = useCompactLayout();
   const qc = useQueryClient();
   const restaurant = useRestaurantStore((s) => s.restaurant);
   const restaurantId = restaurant?._id ?? '';
@@ -1069,6 +1071,101 @@ export function MenuPage() {
           {/* TanStack Table displaying Menu items */}
           {!categoriesQ.isLoading && filteredItems.length > 0 && (
             <div className="w-full space-y-4 pt-1">
+              {compact ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {table.getRowModel().rows.map((row) => {
+                    const item = row.original;
+                    return (
+                      <Card key={item._id} className="border-black/5 overflow-hidden shadow-xs">
+                        <CardContent className="p-0">
+                          <div className="flex gap-3 p-3">
+                            <div className="size-16 shrink-0 overflow-hidden rounded-xl bg-black/[0.04]">
+                              {item.images?.[0] ? (
+                                <img src={item.images[0]} alt="" className="size-full object-cover" />
+                              ) : (
+                                <div className="flex size-full items-center justify-center text-muted">
+                                  <UtensilsCrossed className="size-5" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-bold text-ink">{item.itemName}</p>
+                              <p className="text-[10px] font-semibold uppercase text-muted">
+                                {categoryNameOf(item)}
+                              </p>
+                              <p className="mt-1 text-sm font-black text-ink">₹{item.price}</p>
+                              <div className="mt-2 flex items-center gap-2">
+                                <Badge variant="outline" className="text-[9px] font-bold uppercase">
+                                  {item.foodType}
+                                </Badge>
+                                <Switch
+                                  checked={item.isAvailable}
+                                  onCheckedChange={() =>
+                                    toggleMut.mutate({ itemId: item._id, isAvailable: !item.isAvailable })
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex border-t border-black/5">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-9 flex-1 rounded-none text-xs font-bold"
+                              onClick={() => {
+                                setEditingItem(item);
+                                setEditForm({
+                                  itemName: item.itemName,
+                                  shortDescription: item.shortDescription ?? '',
+                                  description: item.description ?? '',
+                                  price: String(item.price),
+                                  discountedPrice:
+                                    item.discountedPrice != null ? String(item.discountedPrice) : '',
+                                  categoryId:
+                                    typeof item.categoryId === 'object'
+                                      ? item.categoryId._id
+                                      : item.categoryId,
+                                  foodType: item.foodType,
+                                  isRecommended: item.isRecommended ?? false,
+                                  images: item.images ?? [],
+                                  addons: item.addons ?? [],
+                                  spiceLevel: item.spiceLevel ?? '',
+                                  preparationTimeMinutes:
+                                    item.preparationTimeMinutes != null
+                                      ? String(item.preparationTimeMinutes)
+                                      : '',
+                                  ingredients: (item.ingredients ?? []).join(', '),
+                                });
+                                setEditOpen(true);
+                              }}
+                            >
+                              <Edit3 className="mr-1 size-3.5" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-9 flex-1 rounded-none text-xs font-bold text-rose-600"
+                              onClick={() => {
+                                toast.warning(`Delete "${item.itemName}"?`, {
+                                  description: 'Are you sure you want to remove this item?',
+                                  action: {
+                                    label: 'Delete',
+                                    onClick: () => deleteMut.mutate(item._id),
+                                  },
+                                });
+                              }}
+                            >
+                              <Trash2 className="mr-1 size-3.5" />
+                              Delete
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
               <div className="rounded-2xl border border-black/5 bg-white overflow-hidden shadow-xs">
                 <Table>
                   <TableHeader>
@@ -1103,6 +1200,7 @@ export function MenuPage() {
                   </TableBody>
                 </Table>
               </div>
+              )}
 
               {/* Pagination controls */}
               <div className="flex items-center justify-between pt-2">

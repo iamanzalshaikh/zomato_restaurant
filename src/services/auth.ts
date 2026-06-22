@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api';
+import { loginLog } from '@/lib/loginLogger';
 import type { ApiResponse, AuthTokens, AuthUser } from '@/types/api';
 
 type AuthPayload = AuthTokens & { user: AuthUser };
@@ -9,21 +10,37 @@ function unwrapAuth(body: ApiResponse<AuthPayload>) {
 
 /** Gmail / email OTP — primary restaurant login */
 export async function sendRestaurantEmailOtp(email: string) {
-  const body = await apiFetch<
-    ApiResponse<{ email?: string; purpose?: string; devOtp?: string }>
-  >('/auth/restaurant/send-email-otp', {
-    method: 'POST',
-    body: JSON.stringify({ email }),
-  });
-  return body.data;
+  loginLog('info', 'Sending restaurant email OTP', { email });
+  try {
+    const body = await apiFetch<
+      ApiResponse<{ email?: string; purpose?: string; devOtp?: string }>
+    >('/auth/restaurant/send-email-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+    loginLog('success', 'OTP send response received', {
+      hasDevOtp: Boolean(body.data?.devOtp),
+    });
+    return body.data;
+  } catch (err) {
+    loginLog('error', 'OTP send failed', err instanceof Error ? err.message : err);
+    throw err;
+  }
 }
 
 export async function verifyRestaurantEmailOtp(email: string, otp: string) {
-  const body = await apiFetch<ApiResponse<AuthPayload>>('/auth/restaurant/verify-email-otp', {
-    method: 'POST',
-    body: JSON.stringify({ email, otp }),
-  });
-  return unwrapAuth(body);
+  loginLog('info', 'Verifying restaurant email OTP', { email, otpLength: otp.length });
+  try {
+    const body = await apiFetch<ApiResponse<AuthPayload>>('/auth/restaurant/verify-email-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp }),
+    });
+    loginLog('success', 'OTP verified', { userId: body.data?.user?._id, role: body.data?.user?.role });
+    return unwrapAuth(body);
+  } catch (err) {
+    loginLog('error', 'OTP verify failed', err instanceof Error ? err.message : err);
+    throw err;
+  }
 }
 
 export async function sendRestaurantOtp(mobile: string) {

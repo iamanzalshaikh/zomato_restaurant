@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import { GOOGLE_MAPS_API_KEY } from '@/config/env';
-import { loadGoogleMaps, pinSymbol, riderArrowSymbol, type MapCoord } from '@/lib/googleMaps';
+import {
+  loadGoogleMaps,
+  pinSymbol,
+  riderArrowSymbol,
+  isValidCoord,
+  type GoogleMapsRuntime,
+  type MapCoord,
+} from '@/lib/googleMaps';
 
 type Props = {
   restaurant?: MapCoord | null;
@@ -12,10 +19,6 @@ type Props = {
   height?: number;
   className?: string;
 };
-
-function isValid(c?: MapCoord | null) {
-  return c && Number.isFinite(c.latitude) && Number.isFinite(c.longitude);
-}
 
 export function OrderTrackingMap({
   restaurant,
@@ -29,15 +32,15 @@ export function OrderTrackingMap({
   const mapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
   const polylineRef = useRef<google.maps.Polyline | null>(null);
-  const [ready, setReady] = useState(false);
+  const [gmaps, setGmaps] = useState<GoogleMapsRuntime | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        await loadGoogleMaps(GOOGLE_MAPS_API_KEY);
-        if (!cancelled) setReady(true);
+        const libs = await loadGoogleMaps(GOOGLE_MAPS_API_KEY);
+        if (!cancelled) setGmaps(libs);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Map failed to load');
       }
@@ -48,13 +51,14 @@ export function OrderTrackingMap({
   }, []);
 
   useEffect(() => {
-    if (!ready || !containerRef.current || !window.google?.maps) return;
+    if (!gmaps || !containerRef.current) return;
 
-    const points = [restaurant, rider, customer].filter(isValid) as MapCoord[];
+    const { Map, Marker, Polyline, LatLngBounds } = gmaps;
+    const points = [restaurant, rider, customer].filter(isValidCoord) as MapCoord[];
     const center = points[0] ?? { latitude: 19.076, longitude: 72.8777 };
 
     if (!mapRef.current) {
-      mapRef.current = new google.maps.Map(containerRef.current, {
+      mapRef.current = new Map(containerRef.current, {
         center: { lat: center.latitude, lng: center.longitude },
         zoom: 14,
         disableDefaultUI: true,
@@ -72,41 +76,41 @@ export function OrderTrackingMap({
     polylineRef.current?.setMap(null);
 
     const map = mapRef.current;
-    const bounds = new google.maps.LatLngBounds();
+    const bounds = new LatLngBounds();
 
-    if (isValid(restaurant)) {
+    if (isValidCoord(restaurant)) {
       const r = restaurant!;
-      const m = new google.maps.Marker({
+      const m = new Marker({
         map,
         position: { lat: r.latitude, lng: r.longitude },
         title: 'Pickup',
-        icon: pinSymbol('#ff5a00'),
+        icon: pinSymbol(gmaps, '#ff5a00'),
         zIndex: 2,
       });
       markersRef.current.push(m);
       bounds.extend(m.getPosition()!);
     }
 
-    if (isValid(customer)) {
+    if (isValidCoord(customer)) {
       const c = customer!;
-      const m = new google.maps.Marker({
+      const m = new Marker({
         map,
         position: { lat: c.latitude, lng: c.longitude },
         title: 'Drop',
-        icon: pinSymbol('#1a1c1c'),
+        icon: pinSymbol(gmaps, '#1a1c1c'),
         zIndex: 2,
       });
       markersRef.current.push(m);
       bounds.extend(m.getPosition()!);
     }
 
-    if (isValid(rider)) {
+    if (isValidCoord(rider)) {
       const rd = rider!;
-      const m = new google.maps.Marker({
+      const m = new Marker({
         map,
         position: { lat: rd.latitude, lng: rd.longitude },
         title: 'Rider',
-        icon: riderArrowSymbol(rd.heading ?? 0),
+        icon: riderArrowSymbol(gmaps, rd.heading ?? 0),
         zIndex: 5,
       });
       markersRef.current.push(m);
@@ -116,9 +120,9 @@ export function OrderTrackingMap({
     const route =
       routePath && routePath.length >= 2
         ? routePath
-        : ([restaurant, rider, customer].filter(isValid) as MapCoord[]);
+        : ([restaurant, rider, customer].filter(isValidCoord) as MapCoord[]);
     if (route.length >= 2) {
-      polylineRef.current = new google.maps.Polyline({
+      polylineRef.current = new Polyline({
         map,
         path: route.map((p) => ({ lat: p.latitude, lng: p.longitude })),
         strokeColor: '#4a148c',
@@ -133,7 +137,7 @@ export function OrderTrackingMap({
       map.setCenter({ lat: points[0]!.latitude, lng: points[0]!.longitude });
       map.setZoom(15);
     }
-  }, [ready, restaurant, customer, rider, routePath]);
+  }, [gmaps, restaurant, customer, rider, routePath]);
 
   if (!GOOGLE_MAPS_API_KEY) {
     return (
@@ -160,7 +164,7 @@ export function OrderTrackingMap({
 
   return (
     <div className={`relative overflow-hidden rounded-xl border border-black/5 ${className}`} style={{ height }}>
-      {!ready && (
+      {!gmaps && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-50">
           <Loader2 className="size-5 animate-spin text-brand" />
         </div>

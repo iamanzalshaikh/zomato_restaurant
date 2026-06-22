@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { GOOGLE_MAPS_API_KEY } from '@/config/env';
-import { loadGoogleMaps } from '@/lib/googleMaps';
+import { loadGoogleMaps, type GoogleMapsRuntime } from '@/lib/googleMaps';
 
 type Props = {
   latitude: number;
@@ -14,18 +14,18 @@ export function GoogleRestaurantMapPicker({ latitude, longitude, onPick, height 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
-  const [ready, setReady] = useState(false);
+  const [gmaps, setGmaps] = useState<GoogleMapsRuntime | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        await loadGoogleMaps(GOOGLE_MAPS_API_KEY);
-        if (!cancelled) setReady(true);
+        const libs = await loadGoogleMaps(GOOGLE_MAPS_API_KEY);
+        if (!cancelled) setGmaps(libs);
       } catch (e) {
         if (!cancelled) {
-          setReady(false);
+          setGmaps(null);
           setError(e instanceof Error ? e.message : 'Map failed to load');
         }
       }
@@ -36,12 +36,13 @@ export function GoogleRestaurantMapPicker({ latitude, longitude, onPick, height 
   }, []);
 
   useEffect(() => {
-    if (!ready || !containerRef.current || !window.google?.maps) return;
+    if (!gmaps || !containerRef.current) return;
 
+    const { Map, Marker } = gmaps;
     const center = { lat: latitude, lng: longitude };
 
     if (!mapRef.current) {
-      mapRef.current = new google.maps.Map(containerRef.current, {
+      mapRef.current = new Map(containerRef.current, {
         center,
         zoom: 16,
         disableDefaultUI: true,
@@ -59,7 +60,7 @@ export function GoogleRestaurantMapPicker({ latitude, longitude, onPick, height 
     }
 
     if (!markerRef.current) {
-      markerRef.current = new google.maps.Marker({
+      markerRef.current = new Marker({
         map: mapRef.current,
         position: center,
         draggable: true,
@@ -73,7 +74,7 @@ export function GoogleRestaurantMapPicker({ latitude, longitude, onPick, height 
     } else {
       markerRef.current.setPosition(center);
     }
-  }, [ready, latitude, longitude, onPick]);
+  }, [gmaps, latitude, longitude, onPick]);
 
   return (
     <div
@@ -86,7 +87,7 @@ export function GoogleRestaurantMapPicker({ latitude, longitude, onPick, height 
           <p className="text-center leading-relaxed">{error}</p>
         </div>
       )}
-      {!ready && !error && (
+      {!gmaps && !error && (
         <div className="absolute inset-0 z-10 flex items-center justify-center text-xs text-muted">
           Loading Google Maps…
         </div>

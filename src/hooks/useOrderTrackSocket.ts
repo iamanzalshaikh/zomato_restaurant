@@ -7,6 +7,7 @@ import {
   leaveOrderRoom,
   SERVER_EVENTS,
 } from '@/lib/socket';
+import { isValidCoord } from '@/lib/googleMaps';
 import type { OrderTrackPayload } from '@/types/api';
 
 type RiderLocationPayload = {
@@ -18,19 +19,20 @@ function mergeTrack(
   prev: OrderTrackPayload | undefined,
   payload: RiderLocationPayload,
 ): OrderTrackPayload & { socketLive?: boolean } {
-  const riderLocation = payload.riderLocation ?? prev?.riderLocation ?? prev?.liveLocation;
+  const incoming = payload.riderLocation;
+  const riderLocation = isValidCoord(incoming)
+    ? incoming
+    : isValidCoord(prev?.riderLocation)
+      ? prev!.riderLocation
+      : isValidCoord(prev?.liveLocation)
+        ? prev!.liveLocation
+        : undefined;
   return {
     orderId: payload.orderId ?? prev?.orderId ?? '',
     orderStatus: prev?.orderStatus ?? '',
     ...prev,
     riderLocation,
-    liveLocation: riderLocation
-      ? {
-          latitude: riderLocation.latitude,
-          longitude: riderLocation.longitude,
-          heading: riderLocation.heading,
-        }
-      : prev?.liveLocation,
+    liveLocation: riderLocation,
     socketLive: true,
   };
 }

@@ -1,5 +1,12 @@
 /** Minimal Google Maps JS types for the restaurant portal (no @types package). */
 declare namespace google.maps {
+  interface MapsLibrary {
+    Map: typeof Map;
+    Marker: typeof Marker;
+    Polyline: typeof Polyline;
+    LatLngBounds: typeof LatLngBounds;
+  }
+
   enum SymbolPath {
     CIRCLE = 0,
     FORWARD_CLOSED_ARROW = 1,

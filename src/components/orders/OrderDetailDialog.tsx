@@ -1,15 +1,16 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bike, MapPin, Loader2, Navigation } from 'lucide-react';
+import { Bike, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  acceptOrder,
   assignRiderToOrder,
+  cancelOrderByRestaurant,
   fetchAvailableRiders,
   fetchOrderById,
-  fetchOrderRoute,
   trackOrder,
+  updateOrderStatus,
 } from '@/services/orders';
-import { OrderTrackingMap } from '@/components/map/OrderTrackingMap';
-import { useOrderTrackSocket } from '@/hooks/useOrderTrackSocket';
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { AcceptOrderDialog } from '@/components/orders/AcceptOrderDialog';
+import { OrderStatusActions } from '@/components/orders/OrderStatusActions';
 import { useRestaurantStore } from '@/stores/restaurantStore';
 import type { Order } from '@/types/api';
 
@@ -49,6 +52,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function OrderDetailDialog({ orderId, open, onOpenChange, restaurantId }: Props) {
   const qc = useQueryClient();
+  const restaurant = useRestaurantStore((s) => s.restaurant);
+  const [acceptOpen, setAcceptOpen] = useState(false);
 
   const orderQ = useQuery({
     queryKey: ['order', orderId],
@@ -62,8 +67,6 @@ export function OrderDetailDialog({ orderId, open, onOpenChange, restaurantId }:
     enabled: Boolean(orderId) && open,
     staleTime: 60_000,
   });
-
-  useOrderTrackSocket(orderId, open);
 
   const ridersQ = useQuery({
     queryKey: ['available-riders'],
@@ -82,79 +85,112 @@ export function OrderDetailDialog({ orderId, open, onOpenChange, restaurantId }:
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const statusMut = useMutation({
+    mutationFn: (orderStatus: string) => updateOrderStatus(orderId!, orderStatus),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      qc.invalidateQueries({ queryKey: ['order-track', orderId] });
+      if (restaurantId) qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      toast.success('Order status updated');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const acceptMut = useMutation({
+    mutationFn: (waitingMinutes: number) => acceptOrder(orderId!, waitingMinutes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      qc.invalidateQueries({ queryKey: ['order-track', orderId] });
+      if (restaurantId) qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      toast.success('Order accepted — customer notified');
+      setAcceptOpen(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: () => cancelOrderByRestaurant(orderId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      if (restaurantId) qc.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      toast.success('Order cancelled');
+      onOpenChange(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const order = orderQ.data;
   const track = trackQ.data;
-  const restaurant = useRestaurantStore((s) => s.restaurant);
-  const loc = track?.liveLocation ?? track?.riderLocation;
-
-  const showMap = Boolean(
-    loc ||
-      track?.restaurantLocation ||
-      track?.deliveryLocation ||
-      (restaurant?.latitude != null && restaurant?.longitude != null),
-  );
+  const actionBusy =
+    statusMut.isPending || acceptMut.isPending || cancelMut.isPending || assignMut.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md bg-white border border-black/5 rounded-2xl p-6 shadow-xl">
-        <DialogHeader className="pb-2">
-          <DialogTitle className="text-base font-extrabold text-ink">
-            Order #{order?.orderNumber ?? orderId?.slice(-6).toUpperCase() ?? '…'}
-          </DialogTitle>
-        </DialogHeader>
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg bg-white border border-black/5 rounded-2xl shadow-xl">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <DialogHeader className="pb-2 pr-8">
+            <DialogTitle className="text-base font-extrabold text-ink">
+              Order #{order?.orderNumber ?? orderId?.slice(-6).toUpperCase() ?? '…'}
+            </DialogTitle>
+          </DialogHeader>
 
-        {orderQ.isLoading && (
-          <div className="space-y-4 py-4">
-            <Skeleton className="h-6 w-32 bg-slate-100 rounded-lg animate-pulse" />
-            <Skeleton className="h-24 w-full bg-slate-100 rounded-xl animate-pulse" />
+          {orderQ.isLoading && (
+            <div className="space-y-4 py-4">
+              <Skeleton className="h-6 w-32 bg-slate-100 rounded-lg animate-pulse" />
+              <Skeleton className="h-24 w-full bg-slate-100 rounded-xl animate-pulse" />
+            </div>
+          )}
+
+          {order && (
+            <OrderDetailBody
+              order={order}
+              track={track}
+              riders={ridersQ.data ?? []}
+              ridersLoading={ridersQ.isLoading}
+              assignPending={assignMut.isPending}
+              onAssign={(userId) => assignMut.mutate(userId)}
+            />
+          )}
+        </div>
+
+        {order && (
+          <div className="shrink-0 border-t border-black/5 bg-white p-4 sm:rounded-b-2xl">
+            <OrderStatusActions
+              order={order}
+              restaurant={restaurant}
+              busy={actionBusy}
+              variant="stack"
+              onAcceptClick={() => setAcceptOpen(true)}
+              onAdvance={(next) => statusMut.mutate(next)}
+              onCancel={() => cancelMut.mutate()}
+            />
           </div>
         )}
 
-        {order && (
-          <OrderDetailBody
-            orderId={orderId!}
-            order={order}
-            track={track}
-            loc={loc}
-            showMap={showMap}
-            restaurantCoord={
-              track?.restaurantLocation ??
-              (restaurant?.latitude != null && restaurant?.longitude != null
-                ? { latitude: restaurant.latitude, longitude: restaurant.longitude }
-                : null)
-            }
-            customerCoord={track?.deliveryLocation ?? null}
-            riders={ridersQ.data ?? []}
-            ridersLoading={ridersQ.isLoading}
-            assignPending={assignMut.isPending}
-            onAssign={(userId) => assignMut.mutate(userId)}
-          />
-        )}
+        <AcceptOrderDialog
+          order={order ?? null}
+          open={acceptOpen}
+          onOpenChange={setAcceptOpen}
+          busy={acceptMut.isPending}
+          onAccept={async (_orderId, waitingMinutes) => {
+            await acceptMut.mutateAsync(waitingMinutes);
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
 }
 
 function OrderDetailBody({
-  orderId,
   order,
   track,
-  loc,
-  showMap,
-  restaurantCoord,
-  customerCoord,
   riders,
   ridersLoading,
   assignPending,
   onAssign,
 }: {
-  orderId: string;
   order: Order;
   track?: Awaited<ReturnType<typeof trackOrder>>;
-  loc?: { latitude: number; longitude: number; heading?: number };
-  showMap: boolean;
-  restaurantCoord?: { latitude: number; longitude: number } | null;
-  customerCoord?: { latitude: number; longitude: number } | null;
   riders: Awaited<ReturnType<typeof fetchAvailableRiders>>;
   ridersLoading: boolean;
   assignPending: boolean;
@@ -175,21 +211,6 @@ function OrderDetailBody({
   const riderMobile = riderUser?.mobile ?? riderDoc?.mobile;
 
   const canAssign = order.orderStatus === 'READY_FOR_PICKUP' && !riderDoc;
-  const mapStatuses = new Set(['RIDER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY', 'DELIVERED']);
-  const showLiveMap = Boolean(showMap && (loc || mapStatuses.has(order.orderStatus)));
-
-  const routeQ = useQuery({
-    queryKey: [
-      'order-route',
-      orderId,
-      loc ? Math.round(loc.latitude * 200) : 0,
-      loc ? Math.round(loc.longitude * 200) : 0,
-      order.orderStatus,
-    ],
-    queryFn: () => fetchOrderRoute(orderId),
-    enabled: showLiveMap,
-    staleTime: 45_000,
-  });
 
   return (
     <div className="space-y-5 text-sm">
@@ -267,48 +288,6 @@ function OrderDetailBody({
           ) : (
             <p className="text-xs text-muted mt-1">Phone not available</p>
           )}
-        </div>
-      )}
-
-      {showLiveMap && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted flex items-center gap-1">
-            <Navigation className="size-3 text-cyan-500" /> Live delivery map
-          </p>
-          <OrderTrackingMap
-            restaurant={restaurantCoord}
-            customer={customerCoord}
-            rider={loc ?? null}
-            routePath={routeQ.data}
-            height={200}
-          />
-          <div className="flex items-center justify-between">
-            <div className="flex justify-center gap-4 text-[10px] text-muted flex-1">
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-[#ff5a00]" /> Pickup
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-cyan-400" /> Rider
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-[#1a1c1c]" /> Drop
-            </span>
-            </div>
-            {(track as { socketLive?: boolean })?.socketLive ? (
-              <span className="text-[10px] font-bold text-emerald-600">● Live</span>
-            ) : null}
-          </div>
-        </div>
-      )}
-
-      {!showLiveMap && loc && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted flex items-center gap-1">
-            <MapPin className="size-3" /> Rider coordinates
-          </p>
-          <p className="text-xs text-muted">
-            {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)}
-          </p>
         </div>
       )}
 

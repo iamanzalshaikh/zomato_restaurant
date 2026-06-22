@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import { SOCKET_URL } from '@/config/env';
+import { getSocketUrl } from '@/config/env';
 import { useAuthStore } from '@/stores/authStore';
 
 export const CLIENT_EVENTS = {
@@ -37,7 +37,7 @@ export function connectRestaurantSocket(): Socket {
     return socket;
   }
 
-  socket = io(SOCKET_URL, {
+  socket = io(getSocketUrl(), {
     auth: { token },
     transports: ['websocket', 'polling'],
     autoConnect: true,

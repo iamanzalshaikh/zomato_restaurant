@@ -1,6 +1,6 @@
-import { useMemo, type ComponentType, type ReactNode } from 'react';
+import { useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Loader2,
   UtensilsCrossed,
@@ -12,13 +12,23 @@ import {
   Package,
   Star,
   BarChart3,
+  Bell,
 } from 'lucide-react';
 import { getRestaurantAnalytics } from '@/services/restaurants';
 import { fetchRestaurantOrders } from '@/services/orders';
 import { fetchMenuItems } from '@/services/menu';
 import { useRestaurantStore } from '@/stores/restaurantStore';
+import { useCompactLayout } from '@/hooks/use-mobile';
 import { PageShell } from '@/components/layout/PageShell';
+import { OrderDetailDialog } from '@/components/orders/OrderDetailDialog';
 import { Button } from '@/components/ui/button';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { NotificationsList } from '@/components/notifications/NotificationsList';
+import {
+  useMarkNotificationReadMutation,
+  useNotificationsQuery,
+} from '@/hooks/useNotificationsQuery';
+import { useUnreadNotificationCount } from '@/hooks/useUnreadNotificationCount';
 import type { RestaurantAnalytics } from '@/types/analytics';
 import type { Order } from '@/types/api';
 
@@ -136,8 +146,16 @@ function SectionCard({
 }
 
 export function DashboardPage() {
+  const compact = useCompactLayout();
+  const navigate = useNavigate();
   const restaurant = useRestaurantStore((s) => s.restaurant);
   const restaurantId = restaurant?._id ?? '';
+  const [trackOrderId, setTrackOrderId] = useState<string | null>(null);
+
+  const unreadCount = useUnreadNotificationCount(Boolean(restaurantId));
+  const notificationsQ = useNotificationsQuery(Boolean(restaurantId));
+  const markRead = useMarkNotificationReadMutation();
+  const recentNotifications = (notificationsQ.data ?? []).slice(0, 5);
 
   const analyticsQ = useQuery({
     queryKey: ['analytics', restaurantId],
@@ -228,6 +246,10 @@ export function DashboardPage() {
       subtitle="Today’s performance, live order queue, and sales at a glance."
       action={
         <div className="flex flex-wrap items-center gap-2">
+          <NotificationBell
+            enabled={Boolean(restaurantId)}
+            onOrderSelect={(id) => setTrackOrderId(id)}
+          />
           <span
             className={`rounded-full px-3 py-1 text-[10px] font-extrabold uppercase tracking-wide ${
               restaurant?.isOpen
@@ -247,8 +269,46 @@ export function DashboardPage() {
       }
     >
       <div className="space-y-5 sm:space-y-6">
+        {/* Notifications — like MyApp / RiderApp home bell feed */}
+        <section className="rounded-xl border border-black/5 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-2 border-b border-black/5 px-4 py-3 sm:px-5">
+            <div className="flex items-center gap-2">
+              <div className="relative flex size-8 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                <Bell className="size-4" />
+                {unreadCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex min-w-[16px] items-center justify-center rounded-full bg-brand px-1 text-[8px] font-black text-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                ) : null}
+              </div>
+              <div>
+                <h2 className="text-sm font-extrabold text-ink">Notifications</h2>
+                <p className="text-[10px] font-medium text-muted">
+                  {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
+                </p>
+              </div>
+            </div>
+            <Button asChild variant="ghost" size="sm" className="h-8 text-xs font-bold text-brand">
+              <Link to="/notifications">View all</Link>
+            </Button>
+          </div>
+          <div className="px-2 py-1 sm:px-3">
+            <NotificationsList
+              items={recentNotifications}
+              loading={notificationsQ.isLoading}
+              compact
+              navigate={navigate}
+              onOrderSelect={(id) => setTrackOrderId(id)}
+              onItemClick={(item) => {
+                if (!item.isRead) markRead.mutate(item._id);
+              }}
+              emptyMessage="No notifications yet — new orders will show here"
+            />
+          </div>
+        </section>
+
         {/* KPI row */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <StatCard
             label="Today's sales"
             value={`₹${todayStats.revenue.toLocaleString('en-IN')}`}
@@ -384,6 +444,39 @@ export function DashboardPage() {
           >
             {recentOrders.length === 0 ? (
               <div className="py-10 text-center text-sm text-muted">No orders yet.</div>
+            ) : compact ? (
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {recentOrders.map((o) => (
+                  <li
+                    key={o._id}
+                    className="rounded-xl border border-black/5 bg-slate-50/80 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTrackOrderId(o._id)}
+                        className="text-left font-bold text-ink hover:text-brand"
+                      >
+                        {orderCode(o)}
+                      </button>
+                      <span className="text-sm font-black tabular-nums text-ink">₹{o.grandTotal}</span>
+                    </div>
+                    <p className="mt-1 truncate text-xs font-medium text-muted">{customerName(o)}</p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="rounded-md bg-black/[0.04] px-2 py-0.5 text-[10px] font-bold uppercase text-ink">
+                        {STATUS_LABELS[o.orderStatus] ?? o.orderStatus}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setTrackOrderId(o._id)}
+                        className="text-[10px] font-bold text-brand hover:underline"
+                      >
+                        Manage
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <div className="overflow-x-auto -mx-1">
                 <table className="w-full min-w-[520px] text-left text-sm">
@@ -544,9 +637,18 @@ export function DashboardPage() {
                           <span className="truncate">{rider ?? 'Awaiting rider'}</span>
                         </p>
                       </div>
-                      <span className="shrink-0 rounded-md bg-black/[0.04] px-2 py-0.5 text-[10px] font-bold uppercase text-ink">
-                        {STATUS_LABELS[o.orderStatus] ?? o.orderStatus}
-                      </span>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <span className="rounded-md bg-black/[0.04] px-2 py-0.5 text-[10px] font-bold uppercase text-ink">
+                          {STATUS_LABELS[o.orderStatus] ?? o.orderStatus}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setTrackOrderId(o._id)}
+                          className="rounded-md bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-cyan-700 hover:bg-cyan-500/20"
+                        >
+                          Track map
+                        </button>
+                      </div>
                     </li>
                   );
                 })}
@@ -555,6 +657,13 @@ export function DashboardPage() {
           </SectionCard>
         </div>
       </div>
+
+      <OrderDetailDialog
+        orderId={trackOrderId}
+        open={Boolean(trackOrderId)}
+        onOpenChange={(open) => !open && setTrackOrderId(null)}
+        restaurantId={restaurantId}
+      />
     </PageShell>
   );
 }
