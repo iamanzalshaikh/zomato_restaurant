@@ -3,6 +3,7 @@ import type { FormEvent, KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { Award, Loader2, Mail, ShieldCheck } from 'lucide-react';
+import { AppReloadButton } from '@/components/layout/AppReloadButton';
 import { sendRestaurantEmailOtp, verifyRestaurantEmailOtp } from '@/services/auth';
 import {
   discoverWorkingNativeHost,
@@ -138,7 +139,7 @@ export function LoginPage() {
   }, [isAuthenticated, navigate]);
 
   const [step, setStep] = useState<Step>('email');
-  const [email, setEmail] = useState('owner@foodapp.com');
+  const [email, setEmail] = useState('shaikhanzal94@gmail.com');
   const [otp, setOtp] = useState<string[]>(Array(6).fill(''));
   const [errorMsg, setErrorMsg] = useState('');
   const [resendTimer, setResendTimer] = useState(0);
@@ -196,7 +197,21 @@ export function LoginPage() {
   };
 
   const sendOtp = useMutation({
-    mutationFn: () => sendRestaurantEmailOtp(email.trim().toLowerCase()),
+    mutationFn: async () => {
+      loginLog('info', 'Discovering backend before OTP…');
+      const host = await discoverWorkingNativeHost();
+      setEnvInfo(getEnvInfo());
+      if (!host) {
+        throw new Error(
+          'Cannot reach backend. Tap Ping backend. PC: npm run dev in clone-backend. Phone on same Wi‑Fi.',
+        );
+      }
+      loginLog('info', 'Sending restaurant email OTP', {
+        email: email.trim().toLowerCase(),
+        api: getEnvInfo().apiUrl,
+      });
+      return sendRestaurantEmailOtp(email.trim().toLowerCase());
+    },
     onSuccess: (data) => {
       loginLog('success', 'Send OTP UI success', { hasDevOtp: Boolean(data.devOtp) });
       setStep('otp');
@@ -432,6 +447,9 @@ export function LoginPage() {
 
   return (
     <div className="fixed inset-0 flex min-h-[100dvh] flex-col overflow-hidden md:flex-row">
+      <div className="absolute right-3 top-3 z-50 sm:right-4 sm:top-4">
+        <AppReloadButton />
+      </div>
       {/* Mobile hero */}
       <div
         className="relative max-h-[38vh] min-h-[200px] shrink-0 overflow-hidden md:hidden"

@@ -7,7 +7,7 @@ const PRODUCTION_API_URL = 'https://zomato-backend-pt66.onrender.com/api/v1';
 const PRODUCTION_SOCKET_URL = 'https://zomato-backend-pt66.onrender.com';
 
 /** Your PC LAN IP — emulator + real phone on same Wi‑Fi */
-const LAN_HOST = import.meta.env.VITE_LAN_HOST ?? '192.168.0.101';
+const LAN_HOST = import.meta.env.VITE_LAN_HOST ?? '192.168.1.100';
 
 function isNativeApp(): boolean {
   try {
@@ -43,12 +43,13 @@ export function getNativeHostCandidates(): string[] {
   const lan = import.meta.env.VITE_LAN_HOST?.trim() ?? LAN_HOST;
   const emulatorAlias = import.meta.env.VITE_ANDROID_API_HOST?.trim() ?? '10.0.2.2';
 
-  // adb reverse tcp:5000 tcp:5000 — most reliable on Windows emulator
+  candidates.push(lan);
+
   if (Capacitor.getPlatform() === 'android') {
     candidates.push('127.0.0.1');
   }
 
-  candidates.push(emulatorAlias, lan);
+  candidates.push(emulatorAlias);
 
   const cached = getCachedNativeHost();
   if (cached) candidates.unshift(cached);
@@ -59,8 +60,7 @@ export function getNativeHostCandidates(): string[] {
 function getNativeHost(): string {
   return (
     getCachedNativeHost() ??
-    import.meta.env.VITE_ANDROID_API_HOST?.trim() ??
-    import.meta.env.VITE_LAN_HOST ??
+    import.meta.env.VITE_LAN_HOST?.trim() ??
     LAN_HOST
   );
 }
@@ -84,8 +84,24 @@ export async function discoverWorkingNativeHost(): Promise<string | null> {
   return null;
 }
 
+function useProductionBackendOnNative(): boolean {
+  return import.meta.env.VITE_USE_PRODUCTION_BACKEND === 'true';
+}
+
+function isRemoteApiUrl(url: string | undefined): boolean {
+  return Boolean(url?.startsWith('https://'));
+}
+
 export function getApiUrl(): string {
   const configured = import.meta.env.VITE_API_URL?.trim();
+
+  if (isNativeApp()) {
+    if (useProductionBackendOnNative() && isRemoteApiUrl(configured)) {
+      return configured || PRODUCTION_API_URL;
+    }
+    const host = getCachedNativeHost() ?? getNativeHost();
+    return `http://${host}:${API_PORT}/api/v1`;
+  }
 
   if (import.meta.env.PROD) {
     return configured || PRODUCTION_API_URL;
@@ -95,15 +111,19 @@ export function getApiUrl(): string {
     return `http://${import.meta.env.VITE_NATIVE_API_HOST}:${API_PORT}/api/v1`;
   }
 
-  if (isNativeApp()) {
-    return `http://${getNativeHost()}:${API_PORT}/api/v1`;
-  }
-
   return configured || `http://localhost:${API_PORT}/api/v1`;
 }
 
 export function getSocketUrl(): string {
   const configured = import.meta.env.VITE_SOCKET_URL?.trim();
+
+  if (isNativeApp()) {
+    if (useProductionBackendOnNative() && isRemoteApiUrl(configured)) {
+      return configured || PRODUCTION_SOCKET_URL;
+    }
+    const host = getCachedNativeHost() ?? getNativeHost();
+    return `http://${host}:${API_PORT}`;
+  }
 
   if (import.meta.env.PROD) {
     return configured || PRODUCTION_SOCKET_URL;
@@ -113,16 +133,14 @@ export function getSocketUrl(): string {
     return `http://${import.meta.env.VITE_NATIVE_API_HOST}:${API_PORT}`;
   }
 
-  if (isNativeApp()) {
-    return `http://${getNativeHost()}:${API_PORT}`;
-  }
-
   return configured || `http://localhost:${API_PORT}`;
 }
 
 export const DEFAULT_RESTAURANT_ID = import.meta.env.VITE_DEFAULT_RESTAURANT_ID ?? '';
 export const GOOGLE_MAPS_API_KEY =
-  import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? 'AIzaSyAp9uH5jjHOB4jJonsmLP43dImnug2WJ9E';
+  import.meta.env.VITE_GOOGLE_MAPS_API_KEY ??
+  import.meta.env.VITE_GOOGLE_GEOCODING_API_KEY ??
+  'AIzaSyCxoK3LptaTG8r4VJBPf9LH_bdCBbTenJI';
 
 export function getEnvInfo() {
   return {
